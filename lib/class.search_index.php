@@ -130,9 +130,11 @@ Class SearchIndex {
 		/* MULTILANGUAGE SUPPORT: */
 		require_once(TOOLKIT . '/class.extensionmanager.php');
 		require_once(TOOLKIT . '/class.fieldmanager.php');
+		$fieldManager = new FieldManager($this);
 		$extensionManager = new ExtensionManager($this);
 		$status = $extensionManager->fetchStatus('multilanguage');
 		$multilingualFields = array();
+		$languages = array();
 		if($status == EXTENSION_ENABLED)
 		{
 			// Check if this section has multilingual fields:
@@ -141,9 +143,8 @@ Class SearchIndex {
 			{
 				$multilingualFields[] = $result['element_name'];
 			}
+			$languages = explode(',', file_get_contents(MANIFEST.'/multilanguage-languages'));
 		}
-		$fieldManager = new FieldManager($this);
-		$languages = explode(',', file_get_contents(MANIFEST.'/multilanguage-languages'));
 		
 		foreach($xml->xpath("//entry") as $entry_xml) {
 			// get text value of the entry (default behaviour)
