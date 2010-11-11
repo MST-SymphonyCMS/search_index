@@ -93,7 +93,7 @@ Class SearchIndex {
 
 						$field = self::$_entry_manager->fieldManager->fetch($field_id);
 						$field->buildDSRetrivalSQL($value, $joins, $where, ($filter_type == DS_FILTER_AND ? TRUE : FALSE));
-
+						
 					}
 				}
 				self::$_where = $where;
@@ -127,15 +127,66 @@ Class SearchIndex {
 		
 		$xml = simplexml_load_string($entry_xml->generate());
 		
+		/* MULTILANGUAGE SUPPORT: */
+		require_once(TOOLKIT . '/class.extensionmanager.php');
+		require_once(TOOLKIT . '/class.fieldmanager.php');
+		$extensionManager = new ExtensionManager($this);
+		$status = $extensionManager->fetchStatus('multilanguage');
+		$multilingualFields = array();
+		if($status == EXTENSION_ENABLED)
+		{
+			// Check if this section has multilingual fields:
+			$results = Symphony::Database()->fetch('SELECT `element_name` FROM `tbl_fields` WHERE `parent_section` = '.$section.' AND `multilanguage` = 1;');
+			foreach($results as $result)
+			{
+				$multilingualFields[] = $result['element_name'];
+			}
+		}
+		$fieldManager = new FieldManager($this);
+		$languages = explode(',', file_get_contents(MANIFEST.'/multilanguage-languages'));
+		
 		foreach($xml->xpath("//entry") as $entry_xml) {
-			
-			// get text value of the entry
+			// get text value of the entry (default behaviour)
 			$proc = new XsltProcess();
 			$data = $proc->process($entry_xml->asXML(), file_get_contents(EXTENSIONS . '/search_index/lib/parse-entry.xsl'));
-			$data = trim($data);
-			self::saveEntryIndex((int)$entry_xml->attributes()->id, $section, $data);
+			
+			$dataLanguages = array();
+			foreach($languages as $language)
+			{
+				foreach($entry_xml->children() as $child)
+				{
+					$name = $child->getName();
+					if(in_array($name, $multilingualFields))
+					{
+						// Bingo!
+						// Get the correct value for this item:
+						$field_id = $fieldManager->fetchFieldIDFromElementName($name);
+						$entry_id = $entry_xml->attributes()->id;
+						$values = Symphony::Database()->fetch('SELECT * FROM `tbl_multilanguage_values` WHERE `id_entry` = '.$entry_id.' AND `id_field` = '.$field_id.' AND `language` = \''.$language.'\';');
+						if(count($values) >= 1)
+						{
+							// Value found:
+							foreach($values as $value)
+							{
+								switch($value['field_name'])
+								{
+									case 'value' :
+									{
+										$entry_xml->{$name} = $value['value'];
+										break;
+									}
+								}
+							}
+						}
+					}
+				}
+				// Store it:
+				$proc = new XsltProcess();
+				$dataLanguages[$language] = $proc->process($entry_xml->asXML(), file_get_contents(EXTENSIONS . '/search_index/lib/parse-entry.xsl'));
+			}
+			self::saveEntryIndex((int)$entry_xml->attributes()->id, $section, $data, $dataLanguages);
+			/* END MULTILANGUAGE SUPPORT */
 		}
-
 	}
 	
 	/**
@@ -144,16 +195,19 @@ Class SearchIndex {
 	* @param int $entry
 	* @param int $section
 	* @param string $data
+	* @param array $languages
 	*/
-	public function saveEntryIndex($entry_id, $section_id, $data) {
-		Symphony::Database()->insert(
-			array(
-				'entry_id' => $entry_id,
-				'section_id' => $section_id,
-				'data' => $data
-			),
-			'tbl_search_index'
+	public function saveEntryIndex($entry_id, $section_id, $data, $languages = array()) {
+		$insertData = array(
+			'entry_id' => $entry_id,
+			'section_id' => $section_id,
+			'data' => $data
 		);
+		foreach($languages as $key=>$value)
+		{
+			$insertData['data_'.$key] = $value;
+		}
+		Symphony::Database()->insert($insertData, 'tbl_search_index');
 	}
 	
 	/**
@@ -176,12 +230,19 @@ Class SearchIndex {
 	* @param int $entry_id
 	*/
 	public function deleteIndexByEntry($entry_id) {
-		Symphony::Database()->query(
-			sprintf(
-				"DELETE FROM `tbl_search_index` WHERE `entry_id` = %d",
-				$entry_id
-			)
-		);
+		if(is_array($entry_id))
+		{
+			foreach($entry_id as $id)
+			{
+				Symphony::Database()->query(
+					sprintf("DELETE FROM `tbl_search_index` WHERE `entry_id` = %d",	$id)
+				);
+			}
+		} else {
+			Symphony::Database()->query(
+				sprintf("DELETE FROM `tbl_search_index` WHERE `entry_id` = %d", $entry_id)
+			);
+		}
 	}
 	
 	/**

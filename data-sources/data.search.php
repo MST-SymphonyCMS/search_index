@@ -118,18 +118,42 @@
 					case 3: $weight = 0.5; break; // low
 					case 4: $weight = 0.25; break; // lowest
 				}
-				if ($weight != 1) $weighting .= sprintf("WHEN e.section_id = %d THEN %d \n", $section_id, $weight);
+				$weighting .= sprintf("WHEN e.section_id = %d THEN %d \n", $section_id, $weight);
+			}
+			
+			/* MULTILANGUAGE SUPPORT: */
+			require_once(TOOLKIT . '/class.extensionmanager.php');
+			$extensionManager = new ExtensionManager($this);
+			$status = $extensionManager->fetchStatus('multilanguage');
+			$languageSuffix = '';
+			if($status == EXTENSION_ENABLED)
+			{
+				$languages = explode(',', file_get_contents(MANIFEST.'/multilanguage-languages'));
+				if(count($languages) > 0)
+				{
+					$code = isset($_GET['language-code']) ? strtolower($_GET['language-code']) : $languages[0];
+					// Override: if the parameter &lang is also in the URL, search that language instead:
+					$code = isset($_GET['lang']) ? strtolower($_GET['lang']) : $code;
+					$languageSuffix = '_'.$code;
+					
+					// SQL injection prevention:
+					if(in_array($code, $languages))
+					{
+						$languageSuffix = '_'.$code;
+					} 
+					
+				}
 			}
 			
 			$sql = sprintf(
 				"SELECT 
 					SQL_CALC_FOUND_ROWS 
 					e.id as `entry_id`,
-					data,
+					data".$languageSuffix.",
 					e.section_id as `section_id`,
 					UNIX_TIMESTAMP(e.creation_date) AS `creation_date`,
 					(
-						MATCH(index.data) AGAINST ('%1\$s') * 
+						MATCH(index.data".$languageSuffix.") AGAINST ('%1\$s') * 
 						CASE
 							%2\$s
 							ELSE 1
@@ -140,7 +164,7 @@
 					tbl_search_index as `index`
 					JOIN tbl_entries as `e` ON (index.entry_id = e.id)
 				WHERE
-					MATCH(index.data) AGAINST ('%4\$s' IN BOOLEAN MODE)
+					MATCH(index.data".$languageSuffix.") AGAINST ('%4\$s' IN BOOLEAN MODE)
 					AND e.section_id IN ('%5\$s')
 				ORDER BY
 					%6\$s
@@ -164,6 +188,7 @@
 				// limit
 				(int)$this->dsParamLIMIT
 			);
+			/* END MULTILANGUAGE SUPPORT */
 			
 			//echo $sql;die;
 			

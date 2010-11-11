@@ -13,7 +13,7 @@
 		public function about() {
 			return array(
 				'name'			=> 'Search Index',
-				'version'		=> '0.4',
+				'version'		=> '0.5',
 				'release-date'	=> '2010-11-09',
 				'author'		=> array(
 					'name'			=> 'Nick Dunn'
@@ -95,9 +95,53 @@
 				return false;
 			}
 			
+			// Support for the multilanguage extension by Giel Berkers:
+			// http://github.com/kanduvisla/multilanguage
+			//
+			// Run the update()-function which does the magic:
+			$this->update();
+			// End Support
+			
 			return true;
 		}
-
+		
+		/**
+		 * Update function
+		 */
+		public function update()
+		{
+			// Support for the multilanguage extension by Giel Berkers:
+			// http://github.com/kanduvisla/multilanguage
+			//
+			// See if the multilingual extension is installed:
+			require_once(TOOLKIT . '/class.extensionmanager.php');
+			$extensionManager = new ExtensionManager($this);
+			$status = $extensionManager->fetchStatus('multilanguage');
+			if($status == EXTENSION_ENABLED)
+			{
+				// Append some extra rows to the search-index table:
+				$languages = explode(',', file_get_contents(MANIFEST.'/multilanguage-languages'));
+				// Check which fields exist:
+				$columns = Symphony::Database()->fetch("SHOW COLUMNS FROM `tbl_search_index`");
+				$fields  = array();
+				foreach($columns as $column)
+				{
+					$fields[] = $column['Field'];
+				}
+				foreach($languages as $language)
+				{
+					$field = 'data_'.$language;
+					if(!in_array($field, $fields))
+					{
+						Administration::instance()->Database->query(
+							"ALTER TABLE `tbl_search_index` ADD `".$field."` TEXT, ADD FULLTEXT (`".$field."`)"
+						);
+					}
+				}
+			}
+			// End Support
+		}
+		
 		/**
 		* Cleanup after yourself, remove configuration and database tables
 		*/
